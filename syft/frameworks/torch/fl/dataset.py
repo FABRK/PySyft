@@ -129,20 +129,33 @@ class BaseDataset:
         return self.data.location
 
 
-def dataset_federate(dataset, workers):
+def dataset_federate(dataset, workers, loader_params = False):
     """
     Add a method to easily transform a torch.Dataset or a sy.BaseDataset
     into a sy.FederatedDataset. The dataset given is split in len(workers)
     part and sent to each workers
     """
+    
     logger.info("Scanning and sending data to {}...".format(", ".join([w.id for w in workers])))
 
     # take ceil to have exactly len(workers) sets after splitting
     data_size = math.ceil(len(dataset) / len(workers))
 
     datasets = []
-    data_loader = torch.utils.data.DataLoader(dataset, batch_size=data_size)
-    for dataset_idx, (data, targets) in enumerate(data_loader):
+    
+    if loader_params: 
+        data_loader = torch.utils.data.DataLoader(dataset, batch_size=data_size, **loader_params)
+
+    else:
+        data_loader = torch.utils.data.DataLoader(dataset, batch_size=data_size)
+    
+    for dataset_idx, batch in enumerate(data_loader):
+        if len(batch) != 2:
+            # print('element of dataloader not in the format (data, target)! Assuming last two tuple positions are those.')
+            (data, targets) = batch[-2:]
+        else:
+            (data, targets) = batch 
+
         worker = workers[dataset_idx % len(workers)]
         logger.debug("Sending data to worker %s", worker.id)
         data = data.send(worker)
@@ -174,9 +187,11 @@ class FederatedDataset:
         # Check that data and targets for a worker are consistent
         for worker_id in self.workers:
             dataset = self.datasets[worker_id]
-            assert len(dataset.data) == len(
-                dataset.targets
-            ), "On each worker, the input and target must have the same number of rows."
+
+            # not for object detection format
+            # assert len(dataset.data) == len(
+            #     dataset.targets
+            # ), "On each worker, the input and target must have the same number of rows."
 
     @property
     def workers(self):
